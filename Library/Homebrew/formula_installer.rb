@@ -155,23 +155,27 @@ class FormulaInstaller
     recursive_runtime_deps = formula.recursive_dependencies.reject(&:build?)
     recursive_runtime_formulae = recursive_runtime_deps.map(&:to_formula)
 
+    recursive_nonruntime_deps = formula.recursive_dependencies.reject(&:run?)
+    recursive_nonruntime_formulae = recursive_nonruntime_deps.map(&:to_formula)
+
     recursive_dependencies = []
     recursive_formulae.each do |dep|
       dep_recursive_dependencies = dep.recursive_dependencies.map(&:to_s)
-      if dep_recursive_dependencies.include?(formula.name)
-        recursive_dependencies << "#{formula.full_name} depends on #{dep.full_name}"
-        recursive_dependencies << "#{dep.full_name} depends on #{formula.full_name}"
+      if dep_recursive_dependencies.include?(formula.name) and recursive_nonruntime_deps.include?(dep)
+          recursive_dependencies << "#{formula.full_name} depends on #{dep.full_name}"
+          recursive_dependencies << "#{dep.full_name} depends on #{formula.full_name}"
       end
     end
 
     unless recursive_dependencies.empty?
+
       raise CannotInstallFormulaError, <<~EOS
         #{formula.full_name} contains a recursive dependency on itself:
           #{recursive_dependencies.join("\n  ")}
       EOS
     end
 
-    if recursive_formulae.flat_map(&:recursive_dependencies).map(&:to_s).include?(formula.name)
+    if recursive_nonruntime_formulae.flat_map(&:recursive_dependencies).map(&:to_s).include?(formula.name)
       raise CannotInstallFormulaError, <<~EOS
         #{formula.full_name} contains a recursive dependency on itself!
       EOS
@@ -226,7 +230,7 @@ class FormulaInstaller
       EOS
       message += if formula.outdated? && !formula.head?
         <<~EOS
-          To upgrade to #{formula.pkg_version}, run `brew upgrade #{formula.name}`
+                     To upgrade to #{formula.pkg_version}, run `brew upgrade #{formula.name}`
         EOS
       else
         # some other version is already installed *and* linked
