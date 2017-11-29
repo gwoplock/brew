@@ -256,6 +256,8 @@ class FormulaInstaller
       raise BuildToolsError, [formula]
     end
 
+    #TODO mark this as installed if needed
+
     unless ignore_deps?
       deps = compute_dependencies
       check_dependencies_bottled(deps) if pour_bottle? && !DevelopmentTools.installed?
@@ -381,7 +383,7 @@ class FormulaInstaller
   def compute_dependencies
     req_map, req_deps = expand_requirements
     check_requirements(req_map)
-    deps = expand_dependencies(req_deps + formula.deps)
+    deps = expand_dependencies_build(req_deps + formula.deps)
 
     deps
   end
@@ -475,6 +477,30 @@ class FormulaInstaller
     [unsatisfied_reqs, deps]
   end
 
+  def expand_dependencies_build(deps)
+    inherited_options = Hash.new { |hash, key| hash[key] = Options.new }
+
+    expanded_deps = Dependency.expand(formula, deps) do |dependent, dep|
+      inherited_options[dep.name] |= inherited_options_for(dep)
+      build = effective_build_options_for(
+        dependent,
+        inherited_options.fetch(dependent.name, []),
+      )
+
+      if (dep.optional? || dep.recommended?) && build.without?(dep)
+        Dependency.prune
+      elsif dep.build? && install_bottle_for?(dependent, build)
+        Dependency.prune
+      elsif dep.satisfied?(inherited_options[dep.name])
+        Dependency.skip
+      elsif !dep.build?
+        Dependency.skip
+      end
+    end
+
+    expanded_deps.map { |dep| [dep, inherited_options[dep.name]] }
+  end
+
   def expand_dependencies(deps)
     inherited_options = Hash.new { |hash, key| hash[key] = Options.new }
 
@@ -530,7 +556,7 @@ class FormulaInstaller
     if deps.empty? && only_deps?
       puts "All dependencies for #{formula.full_name} are satisfied."
     elsif !deps.empty?
-      oh1 "Installing dependencies for #{formula.full_name}: #{deps.map(&:first).map(&Formatter.method(:identifier)).join(", ")}",
+      oh1 "Installng dependencies for #{formula.full_name}: #{deps.map(&:first).map(&Formatter.method(:identifier)).join(", ")}",
         truncate: false
       deps.each { |dep, options| install_dependency(dep, options) }
     end
